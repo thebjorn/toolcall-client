@@ -25,9 +25,16 @@ from . import appsettings
 
 # (http://localhost:8000/.api/toolcall/v2/) api.urls.result_token.url
 RESULT_TOKEN_URL = 'result/'
+DBG_COUNTER = 1
 
 
 def receive_start_token(request):
+    global DBG_COUNTER
+    sess = request.session
+    # print "RECV:START:TOKEN:SESSION:", dir(sess)
+    print "sesskey:", request.session.session_key
+    print "sessobj:", id(request.session)
+    request.session.set_test_cookie()
     token = request.REQUEST['access_token']
     # check if token has been seen before..?
     url = appsettings.START_DATA_URL + '?access_token=' + token
@@ -62,10 +69,11 @@ def receive_start_token(request):
 
     # must start with a finaut prefix since we're using an internal blindsso
     # authenticator here
-    username = 'fin-tool-' + start_data['data']['persnr'][:15]
+    username = 'fin-tool-' + start_data['data']['persnr'][:10] + '%03d' % DBG_COUNTER
+    DBG_COUNTER += 1
     # create user if new
     if not User.objects.filter(username=username):
-        User.objects.create_user(
+        request.user = User.objects.create_user(
             username=username,
             first_name=start_data['data']['firstName'],
             last_name=start_data['data']['lastName'],
@@ -74,24 +82,33 @@ def receive_start_token(request):
     # this authenticate should end up in
     # toolcall.auth_backend.DKSSOBlindTrustAuthenticator
     # (you can also "cheat" by setting user.backend directly insted..)
-    user = authenticate(username=username, sso_login=True)
-    if user is None or not user.is_active:
-        raise ValueError("user couln't authenticate: " + username)
-    # user = User.objects.get(username=username)
-    # user.backend = ModelBackend
+    # user = authenticate(username=username, sso_login=True)
+    # if user is None or not user.is_active:
+    #     raise ValueError("user couln't authenticate: " + username)
+    user = User.objects.get(username=username)
+    user.backend = 'django.contrib.auth.backends.ModelBackend'
     login(request, user)
     user = request.user
     print "USER:BACKEND:", user.backend
     print "REQUEST:USER:", request.user
+    print "USERNAME:", request.user.username
 
     assert user.is_authenticated()
 
     request.session['start-data'] = start_data
+    request.session.modified = True
+    request.user.save()
+    request.session.save()
     return http.HttpResponseRedirect('/client/tool/' + start_data['data']['exam'] + '/')
+
 
 
 @csrf_exempt
 def run_adding_test(request):
+    print "sessobj:", id(request.session)
+    print "TEST:COOKIE:WORKED:", request.session.test_cookie_worked()
+    if request.session.test_cookie_worked():
+        request.session.delete_test_cookie()
     # run exam..
     print "REQUEST:USER:", request.user
     print "REQUEST:POST:", request.POST
