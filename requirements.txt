@@ -1,0 +1,15 @@
+django==1.7.11
+requests==2.10.0
+python_dateutil==2.1
+# PyYAML
+# cryptography
+
+dk==1.0.2
+dkredis
+
+pytest
+pytest-cov
+pytest-django
+
+# publishing
+dkfileutils==1.4.2
