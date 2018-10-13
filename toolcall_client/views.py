@@ -24,7 +24,7 @@ from . import appsettings
 
 
 # (http://localhost:8000/.api/toolcall/v2/) api.urls.result_token.url
-RESULT_TOKEN_URL = 'result/'
+# RESULT_TOKEN_URL = 'result/'
 DBG_COUNTER = 1
 
 
@@ -44,7 +44,7 @@ def receive_start_token(request):
     # log.debug("fetching %r", url)
     r = requests.get(url)
     if r.status_code != 200:
-        print '\n'*12, "ERROR", '\n'*10
+        print '\n'*3, "ERROR", '\n'*3
         print r.text
         raise ValueError(str(r.status_code))
         # response = http.HttpResponseServerError(r.text)
@@ -89,29 +89,30 @@ def receive_start_token(request):
     user.backend = 'django.contrib.auth.backends.ModelBackend'
     login(request, user)
     user = request.user
-    print "USER:BACKEND:", user.backend
-    print "REQUEST:USER:", request.user
-    print "USERNAME:", request.user.username
+    # print "USER:BACKEND:", user.backend
+    # print "REQUEST:USER:", request.user
+    # print "USERNAME:", request.user.username
 
     assert user.is_authenticated()
 
     request.session['start-data'] = start_data
-    request.session.modified = True
-    request.user.save()
-    request.session.save()
+    # request.session.modified = True
+    # request.user.save()
+    # request.session.save()
     return http.HttpResponseRedirect('/client/tool/' + start_data['data']['exam'] + '/')
 
 
-
+@login_required
 @csrf_exempt
 def run_adding_test(request):
-    print "sessobj:", id(request.session)
-    print "TEST:COOKIE:WORKED:", request.session.test_cookie_worked()
     if request.session.test_cookie_worked():
         request.session.delete_test_cookie()
-    # run exam..
-    print "REQUEST:USER:", request.user
-    print "REQUEST:POST:", request.POST
+
+    if request.method == 'POST':
+        correct = request.POST.get('answer') == 'ja'
+        return send_result_token(request, correct)
+
+    # show exam..
     return http.HttpResponse(u"""
     <!doctype html>
     <head>
@@ -127,8 +128,8 @@ def run_adding_test(request):
     """)
 
 
-
-def return_result_token(request):
+# not a view..
+def send_result_token(request, correct):
     token = str(random.randrange(2**16, 2**32))
 
     start = request.session['start-data']['data']
@@ -138,21 +139,20 @@ def return_result_token(request):
         'timestamp': datetime.datetime.now().isoformat(),
         'data': {
             'persnr': start['persnr'],
-            'participant_id': 42,      # client-local ID
+            'participant_id': str(request.user.id),      # client-local ID
             'exam': start['exam'],  # (my-tool)
-            'passed': True,         # did the user pass the test
-            "score": 42,
+            'passed': correct,         # did the user pass the test
+            "score": 100 if correct else 0,
             "system": start['system'],
             "exam_type": start["exam_kind"]  # historical accident..
         }
     }
+    print "STORING:RESULT:", json.dumps(result, indent=4)
     dkredis.set_pyval('CLIENT-TOKEN-' + token,
                       result,
                       200)  # seconds
 
-    url = SERVER_ROOT_URL + RESULT_TOKEN_URL
-    url += '?access_token=' + token
-    url += '&client=testclient'  # must match Client.name
+    url = appsettings.RESULT_TOKEN_URL + '?access_token=' + token + '&client=my-test-client'
     print "REDIRECTING TO: ", url
 
     return http.HttpResponseRedirect(url)
@@ -160,8 +160,9 @@ def return_result_token(request):
 
 def send_result_data(request):
     print "in send-result-data:", request.GET
+    print "   request for token:", request.GET['access_token']
     result = dkredis.pop_pyval("CLIENT-TOKEN-" + request.GET['access_token'])
     print "CLIENT_RESULT:", result
-    return toolcall.message.SuccessResponse(
-        result
-    )
+    r = http.HttpResponse(json.dumps(result, indent=4))
+    r['Content-Type'] = 'application/json'
+    return r
