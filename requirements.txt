@@ -1,5 +1,5 @@
 django==1.7.11
-requests==2.10.0
+requests==2.20.0
 python_dateutil==2.1
 # PyYAML
 # cryptography
